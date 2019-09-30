@@ -1,0 +1,51 @@
+Server installation
+apt purge --yes --auto-remove mate-hud snapd
+apt install --yes synaptic
+Adding the Greek schools PPA
+add-apt-repository --yes ppa:ts.sch.gr
+apt update
+Installing LTSP
+There are two methods to maintain the virtual disk for the clients. Read the following two paragraphs and select the one that best fits your use case. Usually the chrootless method is recommended, but it's easy to switch between them afterwards.
+
+Epoptes, a client monitoring tool, is included in the following commands, omit it if you don't need it.
+
+a) Installing LTSP in "chrootless" (previously pnp) mode
+The easiest method to install LTSP is to use the server root (/) as the template for the client disk. This allows you to maintain a single installation graphically (no chroot commands involved) for the server and the clients, while supporting both thin and fat clients. The downside is that it requires the server to have the same architecture as the clients, i.e. if any of your clients are 32bit, you'd need to install the server with the i386 CD.
+
+apt install --yes --install-recommends ltsp-server-standalone ltsp-client epoptes
+gpasswd -a ${SUDO_USER:-$USER} epoptes
+ltsp-update-image --cleanup /
+b) Installing LTSP in "chroot" mode
+The traditional method to install LTSP is to run `ltsp-build-client` to generate an /opt/ltsp/amd64 chroot which will be used for the virtual client disk:
+
+apt install --yes --install-recommends ltsp-server-standalone epoptes
+gpasswd -a ${SUDO_USER:-$USER} epoptes
+ltsp-build-client --purge-chroot --mount-package-cache --extra-mirror 'http://ppa.launchpad.net/ts.sch.gr/ppa/ubuntu bionic main' \
+  --apt-keys '/etc/apt/trusted.gpg.d/ts_sch_gr_ubuntu_ppa.gpg' --late-packages epoptes-client
+To support fat clients, you'd install a desktop environment after that, and recompress the chroot directory into the client image file:
+
+ltsp-chroot -m apt install ubuntu-mate-desktop
+ltsp-update-image
+Note that if you want to install more programs afterwards, in "chrootless" LTSP you'd use apt install xxx && ltsp-update-image -c /, while in "chroot" LTSP you'd use ltsp-chroot apt install xxx && ltsp-update-image. The rest of the steps are the same both for "chrootless" and "chroot" LTSP. It's also easy to use both modes (chroots and the server /), but it's outside the scope of this document.
+
+Configuring dnsmasq
+A few years ago, LTSP started recommending dnsmasq instead of tftpd-hpa/isc-dhcp-server, because it supports both the classic DHCP mode and the ProxyDHCP mode. Select the section below that best suits you. In all cases, it's recommended to use the default Network Manager for managing the network connection, instead of modifying /etc/network/interfaces. Additionally, you may choose to append --enable-dns in the commands below, to configure dnsmasq to act as a DNS server as well, which will then speed up DNS lookups and allow you to easily blacklist certain sites if you need to. If you don't, you might need to define something like DNS_SERVER="8.8.8.8 8.8.4.4" in lts.conf. Finally, if you already configured dnsmasq in the past, you may append --overwrite to overwrite your previous configuration.
+
+a) Single NIC (ProxyDHCP)
+This is the easiest mode as it usually doesn't require any changes in the network topology. The server, the clients and the router are all connected to the same switch(es). The IP leases are managed by the router, or an external DHCP server like proxmox or Windows. No configuration changes to the existing DHCP server are necessary. Dnsmasq will be configured in ProxyDHCP mode, which means that it will only send the boot filename and rootpath DHCP options when a client asks for an IP.
+
+ltsp-config dnsmasq
+b) Dual NIC (Classic DHCP)
+In this mode, the LTSP server has two NICs; one faces the Internet and the other is connected to a dedicated switch with just the LTSP clients. To make configuration easier, LTSP expects you to set up a static IP of 192.168.67.1 for the internal subnet. Then, run the following commands:
+
+ltsp-config dnsmasq --no-proxy-dhcp
+wget https://git.launchpad.net/sch-scripts/plain/debian/sch-scripts.if-up?id=933628b838beb9738825b160f7aafdc0cc182cb4 -O /etc/network/if-up.d/sch-scripts
+chmod +x /etc/network/if-up.d/sch-scripts
+systemctl restart network-manager
+The last three commands fetch and activate a script that automatically enables NAT for the 192.168.67.x subnet, so that if you have fat clients, they'll be able to access the Internet.
+
+Editing lts.conf
+The configuration for the clients, like screen resolution etc, is maintained in a file called lts.conf. To create and start editing it, run:
+
+ltsp-config lts.conf
+xdg-open /var/lib/tftpboot/ltsp/*/lts.conf
